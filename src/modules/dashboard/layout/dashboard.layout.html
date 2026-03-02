@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rollout de Firmware - Mapa</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:system-ui,sans-serif;background:#0f172a;color:#e2e8f0;overflow:hidden;height:100vh}
+  #app{display:grid;grid-template-columns:340px 1fr;height:100vh}
+  #sidebar{background:#1e293b;padding:20px;overflow-y:auto;border-right:1px solid #334155}
+  #sidebar h1{font-size:18px;font-weight:700;margin-bottom:4px}
+  #sidebar .sub{font-size:12px;color:#94a3b8;margin-bottom:16px}
+  #map{width:100%;height:100%}
+  .section{background:#0f172a;border-radius:10px;padding:14px;margin-bottom:14px}
+  .section h3{font-size:13px;font-weight:600;color:#cbd5e1;margin-bottom:10px}
+  label{font-size:11px;color:#94a3b8;display:block;margin-bottom:3px}
+  input[type=range]{width:100%;margin-bottom:2px}
+  .hint{font-size:9px;color:#64748b;margin-bottom:10px}
+  .upload-area{border:2px dashed #475569;border-radius:10px;padding:20px;text-align:center;cursor:pointer;transition:all .2s}
+  .upload-area:hover{border-color:#60a5fa;background:rgba(96,165,250,.05)}
+  .upload-area.loaded{border-color:#4ade80;background:rgba(74,222,128,.05)}
+  .upload-area p{font-size:13px;color:#94a3b8}
+  .upload-area .icon{font-size:28px;margin-bottom:6px}
+  .stats-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .stat-card{background:#1e293b;border-radius:8px;padding:10px;text-align:center}
+  .stat-val{font-size:20px;font-weight:700;color:#4ade80}
+  .stat-label{font-size:10px;color:#94a3b8;margin-top:2px}
+  table{width:100%;border-collapse:collapse;font-size:11px}
+  th{padding:6px 4px;text-align:right;color:#94a3b8;font-weight:500;border-bottom:1px solid #334155}
+  td{padding:6px 4px;text-align:right}
+  .highlight{background:rgba(74,222,128,.08)!important}
+  .badge{display:inline-block;padding:2px 7px;border-radius:99px;font-size:10px;font-weight:600}
+  .btn{width:100%;padding:10px;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;transition:all .2s;margin-top:8px}
+  .btn-play{background:#3b82f6;color:#fff}
+  .btn-play:hover{background:#2563eb}
+  .btn-reset{background:#334155;color:#94a3b8}
+  .btn-reset:hover{background:#475569}
+  .legend{display:flex;gap:10px;justify-content:center;margin-top:8px;flex-wrap:wrap}
+  .legend span{font-size:10px;display:flex;align-items:center;gap:4px}
+  .toggle-row{display:flex;align-items:center;gap:8px;margin-top:8px}
+  .toggle{position:relative;width:36px;height:20px;cursor:pointer}
+  .toggle input{opacity:0;width:0;height:0}
+  .toggle .slider{position:absolute;inset:0;background:#334155;border-radius:20px;transition:.3s}
+  .toggle .slider:before{content:"";position:absolute;width:16px;height:16px;left:2px;bottom:2px;background:#94a3b8;border-radius:50%;transition:.3s}
+  .toggle input:checked+.slider{background:#3b82f6}
+  .toggle input:checked+.slider:before{transform:translateX(16px);background:#e2e8f0}
+  .legend .dot{width:10px;height:10px;border-radius:50%;display:inline-block}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="sidebar">
+    <h1>📡 Rollout de Firmware</h1>
+    <p class="sub">Expansão por raio geográfico • SP / RJ / MG</p>
+    <div class="section" id="upload-section">
+      <h3>1. Dados</h3>
+      <button class="btn btn-play" id="btn-refresh" style="margin-top:0;display:flex;align-items:center;justify-content:center;gap:8px">
+        <span id="btn-refresh-spinner" style="display:none;width:14px;height:14px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite"></span>
+        <span id="btn-refresh-label">🔄 Buscar Dados Atualizados</span>
+      </button>
+      <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
+      <div id="load-status" style="font-size:11px;color:#94a3b8;text-align:center;padding:8px 0 4px">
+        Clique para carregar os dados das câmeras
+      </div>
+    </div>
+    <div class="section" id="stats-section" style="display:none">
+      <h3>2. Plano</h3>
+      <div class="stats-grid">
+        <div class="stat-card"><div class="stat-val" id="stat-total">0</div><div class="stat-label">Total Câmeras</div></div>
+        <div class="stat-card"><div class="stat-val" id="stat-updated">0</div><div class="stat-label">Ondas</div></div>
+        <div class="stat-card"><div class="stat-val" id="stat-pct" style="color:#93c5fd">—</div><div class="stat-label">Duração</div></div>
+        <div class="stat-card"><div class="stat-val" id="stat-radius" style="color:#fbbf24">—</div><div class="stat-label">Alpha</div></div>
+      </div>
+    </div>
+    <div class="section" id="table-section" style="display:none">
+      <h3>Plano de Execução</h3>
+      <table><thead><tr><th>Onda</th><th>Dia</th><th>Raio</th><th>Câmeras</th><th>Acum.</th><th>%</th></tr></thead><tbody id="wave-table"></tbody></table>
+    </div>
+    <div class="legend" id="legend-area" style="display:none;margin-top:12px">
+      <span><span class="dot" style="background:#3b82f6"></span> Onda 1</span>
+      <span><span class="dot" style="background:#8b5cf6"></span> Onda 4</span>
+      <span><span class="dot" style="background:#f43f5e"></span> Onda 7</span>
+      <span><span class="dot" style="background:#fbbf24"></span> Centro</span>
+    </div>
+  </div>
+  <div id="map"></div>
+</div>
+<script>
+const CENTER={lat:-23.5641718,lng:-46.6828659};
+const COLORS=["#3b82f6","#6366f1","#8b5cf6","#a855f7","#d946ef","#ec4899","#f43f5e"];
+
+// State boundaries - loaded dynamically or from fallback
+const GEO_SOURCES=[
+  "https://raw.githubusercontent.com/codeforamerica/click_that_hood/master/public/data/brazil-states.geojson",
+  "https://raw.githubusercontent.com/codeforgermany/click_that_hood/main/public/data/brazil-states.geojson"
+];
+const TARGET_SIGLAS=["SP","RJ","MG"];
+let statesLoaded=false;
+
+let map,cameras=[],markers=[],circles=[],currentPlan=null;
+
+map=L.map('map',{zoomControl:true}).setView([CENTER.lat,CENTER.lng],7);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png',{
+  attribution:'© OpenStreetMap © CARTO',maxZoom:19
+}).addTo(map);
+
+// Draw state boundaries - try external sources first, then fallback upload
+const stateColors={"SP":"#60a5fa","RJ":"#a78bfa","MG":"#34d399"};
+let geoLayer=null;
+
+function drawStates(geoData){
+  if(geoLayer)map.removeLayer(geoLayer);
+  let fc=geoData;
+  // Filter for target states if full brazil file
+  if(fc.features&&fc.features.length>3){
+    fc={type:"FeatureCollection",features:fc.features.filter(f=>TARGET_SIGLAS.includes(f.properties.sigla))};
+  }
+  if(!fc.features||fc.features.length===0)return;
+  geoLayer=L.geoJSON(fc,{
+    style:f=>{
+      const s=f.properties.sigla||"SP";
+      const c=stateColors[s]||"#60a5fa";
+      return{color:c,weight:2,fillColor:c,fillOpacity:0.06,dashArray:'6 4'};
+    },
+    onEachFeature:(f,layer)=>{
+      if(f.properties.name)layer.bindTooltip(f.properties.name,{sticky:true,opacity:0.85});
+    }
+  }).addTo(map);
+  geoLayer.bringToBack();
+  statesLoaded=true;
+}
+
+// Try loading from external sources
+async function loadStatesFromWeb(){
+  for(const url of GEO_SOURCES){
+    try{
+      const r=await fetch(url);
+      if(r.ok){const d=await r.json();drawStates(d);return true;}
+    }catch(e){}
+  }
+  return false;
+}
+loadStatesFromWeb();
+
+L.circleMarker([CENTER.lat,CENTER.lng],{
+  radius:8,fillColor:'#fbbf24',color:'#fbbf24',weight:2,fillOpacity:1
+}).addTo(map).bindTooltip('Centro: R. Dr. Virgílio de Carvalho Pinto, 142 - Pinheiros',{permanent:false});
+
+function render(plan,cams){
+  // Color each camera by its wave (first wave whose radius covers it)
+  markers.forEach((m,i)=>{
+    const dist=cams[i].distanceKm;
+    const waveIdx=plan.waves.findIndex(w=>dist<=w.radiusKm);
+    m.setStyle({fillColor:waveIdx>=0?COLORS[waveIdx]:COLORS[COLORS.length-1],fillOpacity:0.7});
+  });
+  // Draw all wave circles
+  circles.forEach(c=>map.removeLayer(c));circles=[];
+  plan.waves.forEach((w,i)=>{
+    circles.push(L.circle([CENTER.lat,CENTER.lng],{
+      radius:w.radiusKm*1000,color:COLORS[i],weight:2,
+      fillColor:COLORS[i],fillOpacity:0.04,interactive:false
+    }).addTo(map));
+  });
+  // Stats from plan
+  document.getElementById('stat-total').textContent=plan.totalCameras.toLocaleString();
+  document.getElementById('stat-updated').textContent=plan.totalWaves;
+  document.getElementById('stat-pct').textContent=plan.totalDays+' dias';
+  document.getElementById('stat-radius').textContent='α '+plan.alpha;
+  // Wave table from plan
+  document.getElementById('wave-table').innerHTML=plan.waves.map((w,i)=>{
+    const bg=w.fraction>=0.999?'#166534':'#1e3a5f';
+    const col=w.fraction>=0.999?'#4ade80':'#93c5fd';
+    return`<tr><td style="font-weight:600">#${w.wave}</td><td>Dia ${w.day}</td>
+    <td style="font-family:monospace">${w.radiusKm.toFixed(1)} km</td>
+    <td style="color:#a78bfa;font-weight:600">${w.camerasInWave.toLocaleString()}</td>
+    <td style="color:#4ade80;font-weight:600">${w.cumulativeCameras.toLocaleString()}</td>
+    <td><span class="badge" style="background:${bg};color:${col}">${w.percentageCoverage}%</span></td></tr>`;
+  }).join('');
+}
+
+function loadData(cams,plan){
+  cameras=cams;
+  currentPlan=plan;
+  markers.forEach(m=>map.removeLayer(m));markers=[];
+  const renderer=L.canvas({padding:0.5});
+  cams.forEach(c=>{
+    markers.push(L.circleMarker([c.Latitude,c.Longitude],{
+      radius:3,fillColor:'#f43f5e',color:'transparent',weight:0,fillOpacity:0.45,renderer
+    }).addTo(map));
+  });
+  map.fitBounds(L.latLngBounds(cams.map(c=>[c.Latitude,c.Longitude])).pad(0.1));
+  ['stats-section','table-section'].forEach(id=>document.getElementById(id).style.display='block');
+  document.getElementById('legend-area').style.display='flex';
+  render(plan,cams);
+}
+
+document.getElementById('btn-refresh').addEventListener('click',async()=>{
+  const btn=document.getElementById('btn-refresh');
+  const spinner=document.getElementById('btn-refresh-spinner');
+  const label=document.getElementById('btn-refresh-label');
+  const status=document.getElementById('load-status');
+  btn.disabled=true;
+  spinner.style.display='inline-block';
+  label.textContent='Buscando...';
+  status.innerHTML='<span style="color:#93c5fd">⏳ Pipeline buscando dados no Grafana...</span>';
+  try{
+    const r=await fetch('/dashboard/refresh',{method:'POST'});
+    if(!r.ok)throw new Error(r.status);
+    const data=await r.json();
+    loadData(data.cameras,data.plan);
+    status.innerHTML=`<span style="color:#4ade80">✓ ${data.cameras.length.toLocaleString()} câmeras · ${data.plan.totalWaves} ondas planejadas</span>`;
+  }catch(err){
+    status.innerHTML='<span style="color:#f43f5e">✗ Erro ao buscar dados — tente novamente</span>';
+    console.error('Erro no refresh:',err);
+  }finally{
+    btn.disabled=false;
+    spinner.style.display='none';
+    label.textContent='🔄 Buscar Dados Atualizados';
+  }
+});
+
+// Municipality boundaries
+const MUN_SOURCES={
+  SP:"https://raw.githubusercontent.com/tbrugz/geodata-br/master/geojson/geojs-35-mun.json",
+  RJ:"https://raw.githubusercontent.com/tbrugz/geodata-br/master/geojson/geojs-33-mun.json",
+  MG:"https://raw.githubusercontent.com/tbrugz/geodata-br/master/geojson/geojs-31-mun.json"
+};
+let munLayers=[],munData=[],munLoaded=false;
+
+function drawMunicipios(){
+  munLayers.forEach(l=>map.removeLayer(l));munLayers=[];
+  if(munData.length===0)return;
+  const renderer=L.svg({padding:0.5});
+  munData.forEach(fc=>{
+    const l=L.geoJSON(fc,{
+      style:()=>({color:'#475569',weight:0.5,fillColor:'transparent',fillOpacity:0,interactive:true}),
+      onEachFeature:(f,layer)=>{
+        const name=f.properties.name||f.properties.nome||f.properties.description||'';
+        if(name)layer.bindTooltip(name,{sticky:true,opacity:0.85,className:''});
+      },
+      renderer
+    }).addTo(map);
+    munLayers.push(l);
+  });
+  if(geoLayer)geoLayer.bringToBack();
+}
+
+async function loadMunFromWeb(){
+  let loaded=0;
+  for(const[,url]of Object.entries(MUN_SOURCES)){
+    try{
+      const r=await fetch(url);
+      if(r.ok){const d=await r.json();munData.push(d);loaded++;}
+    }catch(e){}
+  }
+  if(loaded>0){munLoaded=true;drawMunicipios();}
+}
+loadMunFromWeb();
+
+</script>
+</body>
+</html>
