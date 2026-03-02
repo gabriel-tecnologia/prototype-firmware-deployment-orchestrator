@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install --save-dev @types/express)",
+      "Bash(ls /workspaces/prototype-firmware-deployment-orchestrator/*.json)"
+    ]
+  }
+}
